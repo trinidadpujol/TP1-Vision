@@ -30,6 +30,65 @@ def find_homography(kp1, kp2, matches):
     H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0) # 5.0 is the threshold to determine if a point is an inlier or not. The lower the threshold, the more strict the RANSAC algorithm is.
     return H
 
+def compute_homography(src_points, dst_points):
+    """Compute homography matrix from source and destination points."""
+
+    A = []
+    for i in range(src_points.shape[0]):
+        x_src, y_src = src_points[i, 0, 0], src_points[i, 0, 1]
+        x_dst, y_dst = dst_points[i, 0, 0], dst_points[i, 0, 1]
+        A.extend([
+            [-x_src, -y_src, -1, 0, 0, 0, x_dst * x_src, x_dst * y_src, x_dst],
+            [0, 0, 0, -x_src, -y_src, -1, y_dst * x_src, y_dst * y_src, y_dst]
+        ])
+
+    A = np.array(A)
+    _, _, V = np.linalg.svd(A)
+    H = V[-1].reshape(3, 3)
+
+    return H
+
+def ransac_homography(kp1, kp2, matches, t=5, max_iterations=1000):
+    """Estimate homography using RANSAC."""
+    src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+    best_inliers = []
+    num_points = src_pts.shape[0]
+
+    for _ in range(max_iterations):
+        # Random sample of 4 points
+        indices = np.random.choice(num_points, 4, replace=False)
+        sample_src = src_pts[indices]
+        sample_dst = dst_pts[indices]
+
+        # Compute homography from the sample
+        H = compute_homography(sample_src, sample_dst)
+
+        # Calculate the number of inliers based on the reprojection error and tolerance t
+        inliers = []
+        for i in range(num_points):
+            # Map source point to destination using H
+            src_pt = np.append(src_pts[i, 0], 1)  # Accessing the 2D point
+            estimated_pt = np.dot(H, src_pt)
+            estimated_pt /= estimated_pt[2]  # Normalize by the third coordinate
+
+            # Calculate the error as the Euclidean distance
+            error = np.linalg.norm(dst_pts[i, 0] - estimated_pt[:2])
+
+            # Count as inlier if the error is below the threshold
+            if error < t:
+                inliers.append(i)
+
+        # Update the best_inliers list if current model is better
+        if len(inliers) > len(best_inliers):
+            best_inliers = inliers
+
+    # Final homography with best inliers and minimum squares method
+    H, _ = cv2.findHomography(src_pts[best_inliers], dst_pts[best_inliers], method=cv2.LMEDS)
+
+    return H, best_inliers
+
 def warp_images(img1, img2, H, ordered=True):
     """ Warp img1 to img2 using the homography matrix H """
     h1, w1 = img1.shape
