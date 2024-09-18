@@ -118,6 +118,35 @@ def warp_images(img1, img2, H, ordered=True):
         result = np.maximum(result, img1_warp)
     return result
 
+def warp_images_color(img1, img2, H):
+    """ Warp img1 to img2 using the homography matrix H """
+    h1, w1 = img1.shape[:2]   
+    h2, w2 = img2.shape[:2]  
+
+    pts1 = np.float32([[0, 0], [0, h1], [w1, h1], [w1, 0]]).reshape(-1, 1, 2) # Coordinates of the 4 corners of the source image
+    pts2 = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2) # Coordinates of the 4 corners of the destination image
+
+    pts1_transformed = cv2.perspectiveTransform(pts1, H) # Apply the homography matrix to the source image corners to find the corresponding corners in the destination image
+
+    pts = np.concatenate((pts2, pts1_transformed), axis=0) # Concatenate the corners of the destination image and the corners of the source image warped to the destination image
+
+    [x_min, y_min] = np.int32(pts.min(axis=0).ravel() - 0.5) # Find the min and max x and y coordinates of the corners of the warped source image in the destination image (subtract 0.5 to round down) 
+    [x_max, y_max] = np.int32(pts.max(axis=0).ravel() + 0.5)
+
+    translation_dist = [-x_min, -y_min]
+    H_translation = np.array([[1, 0, translation_dist[0]], [0, 1, translation_dist[1]], [0, 0, 1]]) # Translation matrix 
+
+    img1_warp = cv2.warpPerspective(img1, H_translation.dot(H), (x_max - x_min, y_max - y_min))
+
+    if img1.shape == img2.shape:
+        result = img1_warp.copy()  
+        result[translation_dist[1]:h2 + translation_dist[1], translation_dist[0]:w2 + translation_dist[0]] = img2  
+    else:
+        result = np.zeros((y_max - y_min, x_max - x_min, 3), dtype=img2.dtype)  
+        result[translation_dist[1]:h2 + translation_dist[1], translation_dist[0]:w2 + translation_dist[0]] = img2  
+        result = np.maximum(result, img1_warp)  
+
+    return result
 
 def anms(keypoints, N):
     """
