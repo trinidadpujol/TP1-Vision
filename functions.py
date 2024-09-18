@@ -2,7 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-def match_descriptors(des_A, des_B):
+def match_descriptors(des_A, des_B, alpha=0.5):
     """ Match descriptors from two images (A and B) using the brute force matcher """
     # Matching descriptors
     bf = cv2.BFMatcher( )
@@ -11,7 +11,7 @@ def match_descriptors(des_A, des_B):
     # We want matches whose second best match is much worse than the best match (else, is likely to be noise)
     matchesMask = [[0, 0] for i in range(len(matches))]
     for i, (m, n) in enumerate(matches):
-        if m.distance < 0.7 * n.distance:
+        if m.distance < alpha * n.distance:
             matchesMask[i] = [1, 0]
     return matches, matchesMask
 
@@ -117,4 +117,43 @@ def warp_images(img1, img2, H, ordered=True):
         result[translation_dist[1]:h2 + translation_dist[1], translation_dist[0]:w2 + translation_dist[0]] = img2
         result = np.maximum(result, img1_warp)
     return result
+
+
+def anms(keypoints, N):
+    """
+    Applies Adaptive Non-Maximal Suppression (ANMS) to select the N most relevant keypoints.
+    
+    Args:
+        keypoints (list): List of detected keypoints.
+        responses (list): List of responses (strengths) for each keypoint.
+        N (int): Number of keypoints to retain after ANMS.
+
+    Returns:
+        List of retained keypoints after applying ANMS.
+    """
+    if len(keypoints) == 0:
+        return []
+
+    # Convert keypoints and responses to arrays
+    kp_coords = np.array([kp.pt for kp in keypoints])
+    kp_responses = np.array([kp.response for kp in keypoints])
+
+    # Initialize the suppression radius with a large value
+    radii = np.full(len(keypoints), np.inf)
+
+    # Loop over each keypoint and calculate the suppression radius
+    for i in range(len(keypoints)):
+        for j in range(len(keypoints)):
+            if kp_responses[j] > kp_responses[i]:  # If kp j has a stronger response
+                distance = np.linalg.norm(kp_coords[i] - kp_coords[j])  # Euclidean distance
+                if distance < radii[i]:  # Update the minimum radius
+                    radii[i] = distance
+
+    # Sort keypoints by their radius in descending order
+    sorted_indices = np.argsort(radii)[::-1]
+    selected_indices = sorted_indices[:N]  # Select the top N keypoints with the largest radius
+
+    # Return the selected keypoints
+    selected_keypoints = [keypoints[i] for i in selected_indices]
+    return selected_keypoints
 
